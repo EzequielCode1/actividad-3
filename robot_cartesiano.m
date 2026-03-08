@@ -1,0 +1,166 @@
+%Limpieza de pantalla
+clear all
+close all
+clc
+
+%SECCIÓN 1
+%Declaración de variables simbólicas
+syms t l1(t) l2(t) l3(t) l4(t)
+
+%SECCIÓN 2
+RP = [1 1 1 1];
+
+%SECCIÓN 3
+%Creamos el vector de coordenadas articulares
+Q = [l1, l2, l3, l4];
+disp('Coordenadas generalizadas');
+pretty(Q);
+
+%SECCIÓN 4
+%Creamos el vector de velocidades generalizadas
+Qp = diff(Q, t);
+disp('Velocidades generalizadas');
+pretty(Qp);
+
+%SECCIÓN 5
+%Número de grado de libertad del robot
+GDL = size(RP, 2);
+GDL_str = num2str(GDL);
+
+%SECCIÓN 6
+P = sym(zeros(3,1,GDL));
+R = sym(zeros(3,3,GDL));
+
+%Junta 1 (Movimiento en X)
+P(:,:,1)= [0; 0; l1];
+R(:,:,1) = [0 0 1;
+            0 1 0;
+           -1 0 0];
+
+%Junta 2 (Movimiento en Y)
+P(:,:,2)= [0; 0; l2];
+R(:,:,2)= [1 0 0;
+           0 0 1;
+           0 -1 0];
+
+%Junta 3 (Movimiento en Z)
+P(:,:,3) = [0; 0; l3]; 
+R(:,:,3) = [1 0 0;
+            0 1 0;     
+            0 0 1];
+
+%Junta 4 (Extensión vertical del efector)
+P(:,:,4) = [0; 0; -l4];
+R(:,:,4) = [1 0 0;
+            0 1 0; 
+            0 0 1];
+
+%SECCIÓN 7
+Vector_Zeros= zeros(1, 3);
+
+%Inicializamos matrices de transformación
+A(:,:,GDL)=simplify([R(:,:,GDL) P(:,:,GDL); Vector_Zeros 1]);
+T(:,:,GDL)=simplify([R(:,:,GDL) P(:,:,GDL); Vector_Zeros 1]);
+PO(:,:,GDL)= P(:,:,GDL); 
+RO(:,:,GDL)= R(:,:,GDL); 
+RO_inv(:,:,GDL)= R(:,:,GDL); 
+
+%SECCIÓN 8
+for i = 1:GDL
+    
+    i_str= num2str(i);
+    
+    %Matrices locales
+    disp(strcat('Matriz de Transformación local A', i_str));
+    A(:,:,i)=simplify([R(:,:,i) P(:,:,i); Vector_Zeros 1]);
+    pretty(A(:,:,i));
+
+    %Matrices globales
+    try
+       T(:,:,i)= T(:,:,i-1)*A(:,:,i);
+    catch
+       T(:,:,i)= A(:,:,i);
+    end
+    
+    disp(strcat('Matriz de Transformación global T', i_str));
+    T(:,:,i)= simplify(T(:,:,i));
+    pretty(T(:,:,i))
+    
+    RO(:,:,i)= T(1:3,1:3,i);
+    RO_inv(:,:,i)= transpose(RO(:,:,i));
+    PO(:,:,i)= T(1:3,4,i);
+    
+end
+
+%SECCIÓN 9
+%Jacobiano diferencial
+disp('Jacobiano lineal obtenido de forma diferencial');
+
+Jv11 = functionalDerivative(PO(1,1,GDL), l1);
+Jv12 = functionalDerivative(PO(1,1,GDL), l2);
+Jv13 = functionalDerivative(PO(1,1,GDL), l3);
+Jv14 = functionalDerivative(PO(1,1,GDL), l4);
+
+Jv21 = functionalDerivative(PO(2,1,GDL), l1);
+Jv22 = functionalDerivative(PO(2,1,GDL), l2);
+Jv23 = functionalDerivative(PO(2,1,GDL), l3);
+Jv24 = functionalDerivative(PO(2,1,GDL), l4);
+
+Jv31 = functionalDerivative(PO(3,1,GDL), l1);
+Jv32 = functionalDerivative(PO(3,1,GDL), l2);
+Jv33 = functionalDerivative(PO(3,1,GDL), l3);
+Jv34 = functionalDerivative(PO(3,1,GDL), l4);
+
+jv_d = simplify([Jv11 Jv12 Jv13 Jv14;
+                 Jv21 Jv22 Jv23 Jv24;
+                 Jv31 Jv32 Jv33 Jv34]);
+
+pretty(jv_d);
+
+%SECCIÓN 10
+%Jacobiano analítico
+Jv_a(:,GDL) = PO(:,:,GDL);
+Jw_a(:,GDL) = PO(:,:,GDL);
+
+for k = 1:GDL
+    
+    if RP(k) == 0
+        
+        try
+            Jv_a(:,k)= cross(RO(:,3,k-1), PO(:,:,GDL)-PO(:,:,k-1));
+            Jw_a(:,k)= RO(:,3,k-1);
+        catch
+            Jv_a(:,k)= cross([0,0,1], PO(:,:,GDL));
+            Jw_a(:,k)=[0,0,1];
+        end
+        
+    elseif RP(k) == 1
+        
+        try
+            Jv_a(:,k)= RO(:,3,k-1);
+        catch
+            Jv_a(:,k)=[0,0,1];
+        end
+        
+        Jw_a(:,k)=[0,0,0];
+        
+    end
+    
+end    
+
+Jv_a = simplify (Jv_a);
+Jw_a = simplify (Jw_a);
+
+disp('Jacobiano lineal obtenido de forma analítica');
+pretty (Jv_a);
+
+disp('Jacobiano ángular obtenido de forma analítica');
+pretty (Jw_a);
+
+disp('Velocidad lineal obtenida mediante el Jacobiano lineal');
+V = simplify (Jv_a*Qp');
+pretty(V);
+
+disp('Velocidad angular obtenida mediante el Jacobiano angular');
+W = simplify (Jw_a*Qp');
+pretty(W);
